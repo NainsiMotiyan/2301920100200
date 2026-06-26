@@ -646,3 +646,119 @@ Information such as the unread notification count can be cached using a tool lik
 # Conclusion
 
 The proposed optimizations focus on reducing query execution time, minimizing unnecessary database operations, and ensuring that the system continues to perform well as the number of users and notifications increases. By combining proper indexing, pagination, archiving, and caching, the notification system can remain efficient and scalable even under heavy usage.
+# Stage 4
+
+## Scaling the Notification System
+
+The current notification system works well for a small number of users. However, as the number of students and notifications increases, additional architectural improvements are required to maintain performance and reliability.
+
+---
+
+## Challenges
+
+As usage grows, the system may face the following challenges:
+
+* A large number of students may request notifications at the same time.
+* The notification database may contain millions of records.
+* Real-time notification delivery can become difficult during peak traffic.
+* Frequent database reads and writes may increase response time.
+
+---
+
+## Proposed Architecture
+
+```
+                Client (React App)
+                       |
+                 Load Balancer
+                       |
+          -------------------------
+          |                       |
+     Backend Server 1       Backend Server 2
+          |                       |
+          -------- Notification Service -------
+                         |
+                    Message Queue
+                         |
+                    PostgreSQL Database
+                         |
+                         Redis Cache
+```
+
+---
+
+## Load Balancer
+
+A load balancer distributes incoming requests across multiple backend servers instead of sending all traffic to a single server.
+
+### Benefits
+
+* Prevents one server from becoming overloaded.
+* Improves application availability.
+* Allows additional backend servers to be added easily.
+
+---
+
+## Database Scaling
+
+As notification records grow, database performance may decrease.
+
+To improve scalability:
+
+* Add indexes on frequently searched columns.
+* Archive old notifications.
+* Partition large tables based on creation date.
+* Use read replicas for read-heavy workloads.
+
+---
+
+## Caching
+
+Frequently requested information, such as unread notification counts or recently viewed notifications, can be stored in Redis.
+
+Benefits include:
+
+* Faster response time.
+* Reduced database load.
+* Improved user experience.
+
+---
+
+## Message Queue
+
+Instead of sending notifications directly after every event, notifications can first be placed in a message queue.
+
+The notification service processes messages from the queue and delivers them to users.
+
+Benefits:
+
+* Smooth handling of traffic spikes.
+* Reliable notification processing.
+* Better fault tolerance.
+
+---
+
+## Real-Time Delivery
+
+WebSockets remain the preferred choice for real-time communication.
+
+Once a student connects, the server can push new notifications immediately without requiring repeated API requests.
+
+---
+
+## Monitoring
+
+The system should continuously monitor:
+
+* API response times
+* Database performance
+* Failed notification deliveries
+* Server resource usage
+
+Logs should be captured using the provided logging middleware instead of console logging.
+
+---
+
+## Conclusion
+
+By introducing load balancing, caching, message queues, database optimization, and WebSocket communication, the notification system can efficiently support a much larger number of users while maintaining fast response times and reliable notification delivery.
