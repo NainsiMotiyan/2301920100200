@@ -1,20 +1,51 @@
-import { useState, useEffect } from "react";
-import { fetchNotifications } from "../apis/notifications";
+import { useEffect, useState } from "react";
+import { fetchNotifications } from "../api/notifications";
 
-export function useNotifications() {
+export function useNotifications({
+  page = 1,
+  filter = "All",
+  limit = 10,
+}) {
   const [notifications, setNotifications] = useState([]);
   const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const load = async () => {
-      const data = await fetchNotifications();
-      setNotifications(data.notifications ?? []);
-    };
+    loadNotifications();
+  }, [page, filter]);
 
-    load();
-  }, [notifications]);
+  async function loadNotifications() {
+    try {
+      setLoading(true);
+      setError("");
 
-  const totalPages = 0;
+      const data = await fetchNotifications({
+        page,
+        limit,
+        notification_type: filter,
+      });
 
-  return { notifications, total, totalPages, loading: false, error: true };
+      setNotifications(data);
+
+      // The current API doesn't return total records,
+      // so this can be updated later if pagination metadata is added.
+      setTotal(data.length);
+      setTotalPages(1);
+    } catch (err) {
+      setError(err.message || "Something went wrong");
+      setNotifications([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return {
+    notifications,
+    total,
+    totalPages,
+    loading,
+    error,
+  };
 }

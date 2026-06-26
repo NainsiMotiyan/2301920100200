@@ -1,2 +1,46 @@
-export function fetchNotifications() {
+const BASE_URL = "http://4.224.186.213/evaluation-service/notifications";
+
+// Paste ONLY your JWT token here (without "Bearer")
+const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJNYXBDbGFpbXMiOnsiYXVkIjoiaHR0cDovLzIwLjI0NC41Ni4xNDQvZXZhbHVhdGlvbi1zZXJ2aWNlIiwiZW1haWwiOiJjc2UyMzMyOEBnbGJpdG0uYWMuaW4iLCJleHAiOjE3ODI0NTQzNTMsImlhdCI6MTc4MjQ1MzQ1MywiaXNzIjoiQWZmb3JkIE1lZGljYWwgVGVjaG5vbG9naWVzIFByaXZhdGUgTGltaXRlZCIsImp0aSI6Ijk4MmNjY2ExLWJmMzUtNGNhMi1hN2FhLWVkZWM2OTYxOGZjMyIsImxvY2FsZSI6ImVuLUlOIiwibmFtZSI6Im5haW5zaSBtb3RpeWFuIiwic3ViIjoiNDNmYTRhNWEtOWE3ZC00OWU4LWI2NzItMTZmNmE3YjA5ZDM1In0sImVtYWlsIjoiY3NlMjMzMjhAZ2xiaXRtLmFjLmluIiwibmFtZSI6Im5haW5zaSBtb3RpeWFuIiwicm9sbE5vIjoiMjMwMTkyMDEwMDIwMCIsImFjY2Vzc0NvZGUiOiJ4eGtKbmsiLCJjbGllbnRJRCI6IjQzZmE0YTVhLTlhN2QtNDllOC1iNjcyLTE2ZjZhN2IwOWQzNSIsImNsaWVudFNlY3JldCI6ImJNeVBQcXhwdWRYelFxekoifQ.JXCMP1mhEnDPDNdP0A2pEmlAv-A3PqijqLh0g-sJTbQ";
+
+/**
+ * Fetch notifications from API
+ * @param {Object} params
+ * @param {number} params.page
+ * @param {number} params.limit
+ * @param {string} params.notification_type
+ */
+export async function fetchNotifications({
+  page = 1,
+  limit = 10,
+  notification_type = "",
+} = {}) {
+  try {
+    const query = new URLSearchParams({
+      page,
+      limit,
+    });
+
+    if (notification_type && notification_type !== "All") {
+      query.append("notification_type", notification_type);
+    }
+
+    const response = await fetch(`${BASE_URL}?${query.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API Error : ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    return data.notifications || [];
+  } catch (error) {
+    console.error(error);
+
+    throw error;
+  }
 }
