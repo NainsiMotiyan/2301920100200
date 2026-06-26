@@ -306,15 +306,343 @@ ws://server/notifications
 # Summary
 
 The proposed API design provides a simple, scalable, and RESTful interface for managing notifications. REST APIs are used for CRUD-style operations such as fetching, filtering, and marking notifications as read, while WebSockets provide real-time notification delivery. This architecture offers good scalability, predictable endpoints, and a responsive user experience.
+# Stage 2
+
 ## Database Selection
 
-I recommend PostgreSQL as the persistent storage because:
+For the notification system, I chose **PostgreSQL** as the primary database.
 
-- ACID compliance ensures reliable notification storage.
-- Excellent indexing support for fast retrieval.
-- Supports JSON fields if needed.
-- Highly scalable.
-- Mature ecosystem.
-- Suitable for filtering, sorting and pagination.
+### Reasons for choosing PostgreSQL
 
-Although MongoDB is flexible, notifications have a well-defined structure and relational databases provide better consistency and query performance.
+* Provides ACID compliance, ensuring reliable storage of notifications.
+* Supports transactions for consistent updates.
+* Excellent indexing capabilities for fast searches.
+* Handles large volumes of structured notification data efficiently.
+* Supports sorting, filtering, and pagination effectively.
+* Widely used in production systems and easy to scale.
+
+---
+
+## Database Schema
+
+### Students Table
+
+| Column      | Data Type    | Constraint                |
+| ----------- | ------------ | ------------------------- |
+| student_id  | UUID         | Primary Key               |
+| roll_number | VARCHAR(20)  | Unique                    |
+| name        | VARCHAR(100) | Not Null                  |
+| email       | VARCHAR(100) | Unique                    |
+| created_at  | TIMESTAMP    | Default CURRENT_TIMESTAMP |
+
+---
+
+### Notifications Table
+
+| Column          | Data Type    | Constraint                        |
+| --------------- | ------------ | --------------------------------- |
+| notification_id | UUID         | Primary Key                       |
+| student_id      | UUID         | Foreign Key → students.student_id |
+| type            | VARCHAR(30)  | Not Null                          |
+| title           | VARCHAR(150) | Not Null                          |
+| message         | TEXT         | Not Null                          |
+| is_read         | BOOLEAN      | Default FALSE                     |
+| created_at      | TIMESTAMP    | Default CURRENT_TIMESTAMP         |
+
+---
+
+## Relationship
+
+One student can receive many notifications.
+
+```
+Students
+---------
+student_id (PK)
+roll_number
+name
+email
+        |
+        | 1
+        |
+        | *
+Notifications
+--------------
+notification_id (PK)
+student_id (FK)
+type
+title
+message
+is_read
+created_at
+```
+
+---
+
+## SQL Schema
+
+```sql
+CREATE TABLE students (
+    student_id UUID PRIMARY KEY,
+    roll_number VARCHAR(20) UNIQUE,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE notifications (
+    notification_id UUID PRIMARY KEY,
+    student_id UUID REFERENCES students(student_id),
+    type VARCHAR(30) NOT NULL,
+    title VARCHAR(150) NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## SQL Queries
+
+### Get All Notifications
+
+```sql
+SELECT *
+FROM notifications
+WHERE student_id = ?
+ORDER BY created_at DESC;
+```
+
+---
+
+### Get Unread Notifications
+
+```sql
+SELECT *
+FROM notifications
+WHERE student_id = ?
+AND is_read = FALSE
+ORDER BY created_at DESC;
+```
+
+---
+
+### Filter Notifications
+
+```sql
+SELECT *
+FROM notifications
+WHERE student_id = ?
+AND type = ?
+AND is_read = ?
+ORDER BY created_at DESC;
+```
+
+---
+
+### Mark Notification as Read
+
+```sql
+UPDATE notifications
+SET is_read = TRUE
+WHERE notification_id = ?;
+```
+
+---
+
+### Mark All Notifications as Read
+
+```sql
+UPDATE notifications
+SET is_read = TRUE
+WHERE student_id = ?;
+```
+
+---
+
+### Delete Notification
+
+```sql
+DELETE
+FROM notifications
+WHERE notification_id = ?;
+```
+
+---
+
+## Indexes
+
+```sql
+CREATE INDEX idx_notification_student
+ON notifications(student_id);
+
+CREATE INDEX idx_notification_created
+ON notifications(created_at DESC);
+
+CREATE INDEX idx_notification_read
+ON notifications(is_read);
+
+CREATE INDEX idx_notification_type
+ON notifications(type);
+```
+
+---
+
+## Potential Challenges
+
+As the number of users and notifications increases, the following issues may arise:
+
+* Notification table may grow to millions of records.
+* Filtering unread notifications may become slower.
+* Sorting by creation time may require more processing.
+* Simultaneous notification creation can increase database load.
+
+---
+
+## Proposed Solutions
+
+* Create indexes on frequently queried columns.
+* Use pagination when retrieving notifications.
+* Archive old notifications periodically.
+* Partition large tables based on creation date.
+* Cache frequently accessed data such as unread notification counts.
+* Process notification creation asynchronously using a message queue if traffic increases significantly.
+# Stage 3
+
+## Query Optimization
+
+As the notification system grows and more students start using it, the database will have to handle a large number of read and write operations. The following optimizations are suggested to keep the application responsive and improve query performance.
+
+---
+
+## 1. Fetch All Notifications
+
+```sql
+SELECT *
+FROM notifications
+WHERE student_id = ?
+ORDER BY created_at DESC
+LIMIT 20 OFFSET 0;
+```
+
+### Why this query?
+
+Notifications are displayed with the most recent ones first. Instead of loading every notification at once, pagination is used so only a limited number of records are returned in each request. This improves response time and reduces unnecessary database load.
+
+---
+
+## 2. Fetch Unread Notifications
+
+```sql
+SELECT *
+FROM notifications
+WHERE student_id = ?
+AND is_read = FALSE
+ORDER BY created_at DESC;
+```
+
+### Why this query?
+
+Students usually check unread notifications first. Filtering unread records directly in the database is much more efficient than retrieving all notifications and filtering them in the application.
+
+To improve performance further, a composite index on `student_id` and `is_read` can be created.
+
+```sql
+CREATE INDEX idx_student_read
+ON notifications(student_id, is_read);
+```
+
+---
+
+## 3. Filter Notifications by Type
+
+```sql
+SELECT *
+FROM notifications
+WHERE student_id = ?
+AND type = ?
+ORDER BY created_at DESC;
+```
+
+### Why this query?
+
+Students may only want to view a specific category such as placements, events, or results. Filtering in the database reduces the amount of data sent to the frontend and provides faster results.
+
+---
+
+## 4. Mark a Notification as Read
+
+```sql
+UPDATE notifications
+SET is_read = TRUE
+WHERE notification_id = ?;
+```
+
+### Why this query?
+
+Each notification has a unique ID, so updating a single record is straightforward and efficient. Since the primary key is indexed automatically, the update operation remains fast.
+
+---
+
+## 5. Mark All Notifications as Read
+
+```sql
+UPDATE notifications
+SET is_read = TRUE
+WHERE student_id = ?
+AND is_read = FALSE;
+```
+
+### Why this query?
+
+Updating only unread notifications avoids unnecessary database writes and improves overall efficiency.
+
+---
+
+# Possible Performance Challenges
+
+As the application becomes more popular, a few performance issues may arise.
+
+* The notifications table can grow very large over time.
+* Fetching notifications without indexes may become slow.
+* Sorting notifications by date for every request can increase query execution time.
+* A large number of students accessing the system simultaneously can increase database load.
+
+---
+
+# Suggested Improvements
+
+### Add Indexes
+
+Creating indexes on frequently searched columns such as `student_id`, `is_read`, `type`, and `created_at` will significantly improve query performance.
+
+---
+
+### Use Pagination
+
+Instead of returning every notification, only a small set of records should be fetched in each request using `LIMIT` and `OFFSET`. This reduces response time and improves the user experience.
+
+---
+
+### Archive Older Notifications
+
+Notifications that are no longer accessed frequently can be moved to an archive table. This keeps the active table smaller and allows recent notifications to be retrieved more quickly.
+
+---
+
+### Partition Large Tables
+
+If the number of notifications becomes very large, the table can be partitioned based on the creation date. This helps the database scan fewer records during queries.
+
+---
+
+### Cache Frequently Requested Data
+
+Information such as the unread notification count can be cached using a tool like Redis. This reduces repeated database queries and improves application performance.
+
+---
+
+# Conclusion
+
+The proposed optimizations focus on reducing query execution time, minimizing unnecessary database operations, and ensuring that the system continues to perform well as the number of users and notifications increases. By combining proper indexing, pagination, archiving, and caching, the notification system can remain efficient and scalable even under heavy usage.
