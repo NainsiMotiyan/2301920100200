@@ -762,3 +762,129 @@ Logs should be captured using the provided logging middleware instead of console
 ## Conclusion
 
 By introducing load balancing, caching, message queues, database optimization, and WebSocket communication, the notification system can efficiently support a much larger number of users while maintaining fast response times and reliable notification delivery.
+# Stage 5
+
+## Analysis of the Current Implementation
+
+The current implementation processes notifications one student at a time.
+
+```text
+for each student
+    send_email()
+    save_to_db()
+    push_to_app()
+```
+
+Although this approach is simple, it has several drawbacks when sending notifications to 50,000 students.
+
+### Shortcomings
+
+* Processing is completely sequential, making the overall operation slow.
+* If `send_email()` fails for one student, the remaining students may never receive notifications.
+* There is no retry mechanism for temporary failures.
+* If the application crashes midway, it is difficult to determine which students have already received notifications.
+* Email delivery, database storage, and push notifications are tightly coupled, so failure in one step affects the others.
+* The API request will remain active until all 50,000 notifications are processed, resulting in poor response time.
+
+---
+
+## What if `send_email()` fails for 200 students?
+
+If email delivery fails after notifications have already been sent to thousands of students, the process should not restart from the beginning.
+
+Instead:
+
+* Successfully processed students should remain unaffected.
+* Failed email requests should be placed into a retry queue.
+* Retry attempts should use exponential backoff.
+* After a fixed number of failed attempts, the notification should be moved to a Dead Letter Queue (DLQ) for manual investigation.
+
+This ensures that temporary failures do not prevent the remaining students from receiving notifications.
+
+---
+
+## Improved Design
+
+A better solution is to process notifications asynchronously.
+
+### Workflow
+
+1. HR clicks **Notify All**.
+2. The backend creates notification records in the database.
+3. Each notification is added to a message queue.
+4. Multiple worker services process the queue in parallel.
+5. Each worker:
+
+   * sends the email,
+   * sends the in-app notification,
+   * updates the delivery status.
+
+This design improves reliability and significantly reduces processing time.
+
+---
+
+## Should Database Save and Email Sending Happen Together?
+
+No.
+
+Saving the notification in the database and sending the email should be handled separately.
+
+The database acts as the source of truth. Once the notification is stored successfully, background workers can safely deliver emails and push notifications.
+
+If email delivery fails, the notification still exists in the database and can be retried later. This prevents data loss and avoids inconsistencies.
+
+---
+
+## Revised Pseudocode
+
+```text
+function notify_all(student_ids, message):
+
+    for each student_id in student_ids:
+
+        notification_id = save_notification(student_id, message)
+
+        publish_to_queue(notification_id)
+
+
+Worker Process
+
+while queue is not empty:
+
+    notification = get_next_notification()
+
+    try:
+
+        send_email(notification)
+
+        push_to_app(notification)
+
+        update_status(notification, "Delivered")
+
+    catch error:
+
+        retry(notification)
+
+        if retry_limit_exceeded:
+
+            move_to_dead_letter_queue(notification)
+
+            update_status(notification, "Failed")
+```
+
+---
+
+## Benefits of the Improved Design
+
+* Faster processing through parallel workers.
+* API returns immediately without waiting for all notifications.
+* Failed deliveries can be retried automatically.
+* Notifications are never lost because they are stored before delivery.
+* Easier monitoring and debugging using delivery status and logs.
+* Scales efficiently as the number of students grows.
+
+---
+
+## Conclusion
+
+The redesigned solution separates notification storage from delivery, introduces asynchronous processing through message queues, and uses retries and dead letter queues to handle failures gracefully. This approach provides better reliability, scalability, and overall system performance compared to the original sequential implementation.
